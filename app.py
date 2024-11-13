@@ -19,6 +19,10 @@ from slack_bolt import App
 from slack_bolt.adapter.aws_lambda import SlackRequestHandler
 from slack_bolt.adapter.socket_mode import SocketModeHandler
 
+from add_document import initialize_vectorstore
+from langchain.chains import ConversationalRetrievalChain, RetrievalQA
+from langchain.memory import ConversationBufferMemory
+
 from datetime import timedelta
 
 CHAT_UPDATE_INTERVAL_SEC = 1
@@ -90,12 +94,11 @@ def handle_mention(event, say):
         os.environ["MOMENTO_CACHE"],
         timedelta(hours=int(os.environ["MOMENTO_TTL"])),
     )
+    memory = ConversationBufferMemory(
+        chat_memory=history, memory_key="chat_history", return_message=True
+    )
 
-    messages = [SystemMessage(content="You are a good assistant.")]
-    messages.extend(history.messages)
-    messages.append(HumanMessage(content=message))
-    history.add_user_message(message)
-
+    vectorestore = initialize_vectorstore()
     callback = SlackStreamingCallbackHandler(channel=channel, ts=ts)
     llm = AzureChatOpenAI(
         openai_api_version=os.environ["OPENAI_API_VERSION"],
@@ -104,9 +107,19 @@ def handle_mention(event, say):
         streaming=True,
         callbacks=[callback],
     )
-    response = llm.invoke(messages)
-    history.add_message(response)
-    # say(thread_ts=thread_ts, text=response.content)
+
+    condense_question_llm = AzureChatOpenAI(
+        openai_api_version=os.environ["OPENAI_API_VERSION"],
+        azure_deployment=os.environ["AZURE_OPENAI_DEPLOY_NAME"],
+        temperature=os.environ["OPENAI_API_TEMPERATURE"],
+    )
+    qa_chain = ConversationalRetrievalChain.from_llm(
+        llm = llm,
+        retriever=vectorestore.as_retriever(),
+        memory=memory,
+        condense_question_llm=condense_question_llm,
+    )
+    qa_chain.invoke(message)
 
 def just_ack(ack):
     ack()
