@@ -44,7 +44,7 @@ class SlackStreamingCallbackHandler(BaseCallbackHandler):
         self.message += token
 
         now = time.time()
-        if now - self.last_send_time > CHAT_UPDATE_INTERVAL_SEC:
+        if now - self.last_send_time > self.interval:
             self.last_send_time = now
             app.client.chat_update(
                 channel=self.channel, ts=self.ts, text=f"{self.message}..."
@@ -74,7 +74,6 @@ class SlackStreamingCallbackHandler(BaseCallbackHandler):
 
 # @app.event("app_mention")
 def handle_mention(event, say):
-    user = event["user"]
     thread_ts = event["ts"]
     channel = event["channel"]
     message = re.sub("<@.*>", "", event["text"])
